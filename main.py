@@ -184,6 +184,6 @@ if __name__ == "__main__":
 
     asyncio.run(v11_bot.update_past_accuracy())
 
-    TOURNAMENT_IDS = [32721, 32726, 32775, 32725, 32722, 32564, 32637, 3625, 3411, 1756, 1998, 1886]
+    TOURNAMENT_IDS = [32721, 32726, 32775, 32725, 32722, 32564, 3625, 3411, 1756, 1998, 1886]
 
     asyncio.run(run_multiple_tournaments(v11_bot, TOURNAMENT_IDS))
