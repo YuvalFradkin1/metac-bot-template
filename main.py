@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import json
+import time
 from typing import Literal
 import openai
 from forecasting_tools import (
@@ -21,6 +22,8 @@ logger = logging.getLogger(__name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 PREDICTIONS_FILE = "past_predictions.json"
+LAST_UPDATE_FILE = "last_accuracy_update.txt"
+UPDATE_INTERVAL = 24 * 60 * 60  # 24 hours in seconds
 
 class V11Forecaster(ForecastBot):
     _max_concurrent_questions = 2
@@ -105,6 +108,16 @@ class V11Forecaster(ForecastBot):
         return ReasonedPrediction(prediction_value=numeric_dist, reasoning=reasoning)
 
     async def update_past_accuracy(self):
+        last_update = 0
+        if os.path.exists(LAST_UPDATE_FILE):
+            with open(LAST_UPDATE_FILE, "r") as f:
+                last_update = float(f.read())
+
+        current_time = time.time()
+        if current_time - last_update < UPDATE_INTERVAL:
+            logger.info("Accuracy update skipped (last updated less than 24 hours ago).")
+            return
+
         all_questions = await MetaculusApi().get_benchmark_questions(num_of_questions_to_return=100)
         resolved_questions = [q for q in all_questions if q.is_resolved]
 
@@ -120,6 +133,8 @@ class V11Forecaster(ForecastBot):
                     logger.warning(f"Could not parse resolution for question ID {q_id_str}")
 
         self.save_past_predictions()
+        with open(LAST_UPDATE_FILE, "w") as f:
+            f.write(str(current_time))
         logger.info("Past predictions accuracy updated successfully.")
 
 if __name__ == "__main__":
@@ -148,7 +163,7 @@ if __name__ == "__main__":
         skip_previously_forecasted_questions=True,
     )
 
-    logger.info("Running automatic accuracy update...")
+    logger.info("Checking if automatic accuracy update is needed...")
     asyncio.run(v11_bot.update_past_accuracy())
 
     if run_mode == "tournament":
