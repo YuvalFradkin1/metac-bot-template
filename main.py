@@ -41,7 +41,7 @@ class V11Forecaster(ForecastBot):
             json.dump(self.past_predictions, f)
 
     async def run_research(self, question: MetaculusQuestion) -> str:
-        return ""  # No additional research required.
+        return ""
 
     async def text_to_embedding(self, text):
         response = await openai.Embedding.acreate(
@@ -105,7 +105,7 @@ class V11Forecaster(ForecastBot):
         return ReasonedPrediction(prediction_value=numeric_dist, reasoning=reasoning)
 
     async def update_past_accuracy(self):
-        all_questions = await MetaculusApi().get_benchmark_questions()
+        all_questions = await MetaculusApi().get_benchmark_questions(num_of_questions_to_return=100)
         resolved_questions = [q for q in all_questions if q.is_resolved]
 
         for q in resolved_questions:
@@ -148,7 +148,6 @@ if __name__ == "__main__":
         skip_previously_forecasted_questions=True,
     )
 
-    # Automatically update past accuracy on every run
     logger.info("Running automatic accuracy update...")
     asyncio.run(v11_bot.update_past_accuracy())
 
