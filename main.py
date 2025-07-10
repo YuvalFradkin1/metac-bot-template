@@ -41,7 +41,7 @@ class V11Forecaster(ForecastBot):
             json.dump(self.past_predictions, f)
 
     async def run_research(self, question: MetaculusQuestion) -> str:
-        return ""  # פותר את השגיאה בכך שמממש את הפונקציה הנדרשת
+        return ""  # No additional research required.
 
     async def text_to_embedding(self, text):
         response = await openai.Embedding.acreate(
@@ -105,14 +105,20 @@ class V11Forecaster(ForecastBot):
         return ReasonedPrediction(prediction_value=numeric_dist, reasoning=reasoning)
 
     async def update_past_accuracy(self):
-        resolved_questions = await MetaculusApi().get_resolved_questions()
+        all_questions = await MetaculusApi().get_benchmark_questions()
+        resolved_questions = [q for q in all_questions if q.is_resolved]
+
         for q in resolved_questions:
             q_id_str = str(q.id)
             if q_id_str in self.past_predictions:
-                correct_answer = float(q.resolution)
-                predicted_answer = self.past_predictions[q_id_str]
-                accuracy = 1 - abs(correct_answer - predicted_answer)
-                self.past_predictions[q_id_str] = accuracy
+                try:
+                    correct_answer = float(q.resolution)
+                    predicted_answer = self.past_predictions[q_id_str]
+                    accuracy = 1 - abs(correct_answer - predicted_answer)
+                    self.past_predictions[q_id_str] = accuracy
+                except (ValueError, TypeError):
+                    logger.warning(f"Could not parse resolution for question ID {q_id_str}")
+
         self.save_past_predictions()
         logger.info("Past predictions accuracy updated successfully.")
 
@@ -142,6 +148,7 @@ if __name__ == "__main__":
         skip_previously_forecasted_questions=True,
     )
 
+    # Automatically update past accuracy on every run
     logger.info("Running automatic accuracy update...")
     asyncio.run(v11_bot.update_past_accuracy())
 
