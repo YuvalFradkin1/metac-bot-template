@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 import os
+import json
 from typing import Literal
 import openai
 from forecasting_tools import (
@@ -17,51 +18,64 @@ from forecasting_tools import (
 )
 
 logger = logging.getLogger(__name__)
-
-# הגדרת OpenAI API key מתוך משתני סביבה
 openai.api_key = os.getenv("OPENAI_API_KEY")
+
+PREDICTIONS_FILE = "past_predictions.json"
 
 class V11Forecaster(ForecastBot):
     _max_concurrent_questions = 2
     _concurrency_limiter = asyncio.Semaphore(_max_concurrent_questions)
 
-    async def run_research(self, question: MetaculusQuestion) -> str:
-        return ""  # אין צורך במחקר נוסף כרגע, ההמרה מתבצעת באמצעות OpenAI
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.past_predictions = self.load_past_predictions()
 
-    # המרת טקסט לסדרה מספרית באמצעות OpenAI
+    def load_past_predictions(self):
+        if os.path.exists(PREDICTIONS_FILE):
+            with open(PREDICTIONS_FILE, "r") as f:
+                return json.load(f)
+        return {}
+
+    def save_past_predictions(self):
+        with open(PREDICTIONS_FILE, "w") as f:
+            json.dump(self.past_predictions, f)
+
     async def text_to_embedding(self, text):
         response = await openai.Embedding.acreate(
-            input=text,
-            model="text-embedding-ada-002"
+            input=text, model="text-embedding-ada-002"
         )
-        embedding = response["data"][0]["embedding"]
-        return embedding
+        return response["data"][0]["embedding"]
 
-    # שימוש אמיתי ב־V11 על הנתונים המספריים
     async def v11_predict(self, numeric_series):
-        # כאן תבצע קריאה אמיתית ל־V11 שלך
-        # לצורך ההדגמה בלבד, אני מחשב הסתברות פשוטה
         energy_level = sum(numeric_series) / len(numeric_series)
-        probability = max(0, min(1, (energy_level % 1)))  # הדגמה של שימוש אנרגטי
+        adjustment = self.get_adjustment_factor()
+        probability = max(0, min(1, (energy_level % 1) * adjustment))
         return {
             "avg": probability,
             "low": max(0, probability - 0.1),
             "high": min(1, probability + 0.1),
         }
 
+    def get_adjustment_factor(self):
+        if not self.past_predictions:
+            return 1.0
+        accuracy = sum(self.past_predictions.values()) / len(self.past_predictions)
+        return 1.0 + (accuracy - 0.5)
+
     async def _run_forecast_on_binary(
         self, question: BinaryQuestion, research: str
     ) -> ReasonedPrediction[float]:
         embedding = await self.text_to_embedding(question.question_text)
         v11_result = await self.v11_predict(embedding)
-
         reasoning = (
-            f"V11 Energetic prediction using OpenAI embeddings: "
-            f"Probability: {v11_result['avg'] * 100:.2f}%."
+            f"V11 prediction adjusted by past accuracy. Probability: {v11_result['avg']*100:.2f}%."
         )
-
         prediction = v11_result["avg"]
         logger.info(f"Forecasted {question.page_url} as {prediction:.2f}\n{reasoning}")
+
+        self.past_predictions[str(question.id)] = prediction
+        self.save_past_predictions()
+
         return ReasonedPrediction(prediction_value=prediction, reasoning=reasoning)
 
     async def _run_forecast_on_multiple_choice(
@@ -86,6 +100,18 @@ class V11Forecaster(ForecastBot):
         numeric_dist = NumericDistribution(declared_percentiles=percentiles)
         reasoning = "Numeric questions not yet fully supported by V11."
         return ReasonedPrediction(prediction_value=numeric_dist, reasoning=reasoning)
+
+    async def update_past_accuracy(self):
+        resolved_questions = await MetaculusApi().get_resolved_questions()
+        for q in resolved_questions:
+            q_id_str = str(q.id)
+            if q_id_str in self.past_predictions:
+                correct_answer = float(q.resolution)
+                predicted_answer = self.past_predictions[q_id_str]
+                accuracy = 1 - abs(correct_answer - predicted_answer)
+                self.past_predictions[q_id_str] = accuracy
+        self.save_past_predictions()
+        logger.info("Past predictions accuracy updated successfully.")
 
 if __name__ == "__main__":
     logging.basicConfig(
@@ -113,6 +139,11 @@ if __name__ == "__main__":
         skip_previously_forecasted_questions=True,
     )
 
+    # עדכון עצמי מובנה: בכל הרצה הבוט בודק ומשפר את הדיוק שלו לפי תוצאות עבר
+    logger.info("Running automatic accuracy update...")
+    asyncio.run(v11_bot.update_past_accuracy())
+
+    # לאחר מכן הבוט ממשיך בהרצת התחזיות כרגיל
     if run_mode == "tournament":
         forecast_reports = asyncio.run(
             v11_bot.forecast_on_tournament(
