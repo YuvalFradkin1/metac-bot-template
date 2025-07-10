@@ -40,6 +40,9 @@ class V11Forecaster(ForecastBot):
         with open(PREDICTIONS_FILE, "w") as f:
             json.dump(self.past_predictions, f)
 
+    async def run_research(self, question: MetaculusQuestion) -> str:
+        return ""  # פותר את השגיאה בכך שמממש את הפונקציה הנדרשת
+
     async def text_to_embedding(self, text):
         response = await openai.Embedding.acreate(
             input=text, model="text-embedding-ada-002"
@@ -139,11 +142,9 @@ if __name__ == "__main__":
         skip_previously_forecasted_questions=True,
     )
 
-    # עדכון עצמי מובנה: בכל הרצה הבוט בודק ומשפר את הדיוק שלו לפי תוצאות עבר
     logger.info("Running automatic accuracy update...")
     asyncio.run(v11_bot.update_past_accuracy())
 
-    # לאחר מכן הבוט ממשיך בהרצת התחזיות כרגיל
     if run_mode == "tournament":
         forecast_reports = asyncio.run(
             v11_bot.forecast_on_tournament(
