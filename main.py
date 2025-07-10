@@ -23,7 +23,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 PREDICTIONS_FILE = "past_predictions.json"
 LAST_UPDATE_FILE = "last_accuracy_update.txt"
-UPDATE_INTERVAL = 48 * 60 * 60  # 48 hours in seconds
+UPDATE_INTERVAL = 48 * 60 * 60  # 48 שעות בשניות
 
 class V11Forecaster(ForecastBot):
     _max_concurrent_questions = 2
@@ -148,8 +148,8 @@ class V11Forecaster(ForecastBot):
 async def run_multiple_tournaments(bot, tournament_ids):
     for index, tid in enumerate(tournament_ids):
         if index > 0:
-            logger.info("Waiting 1 hour before starting next tournament to avoid blocking.")
-            await asyncio.sleep(3600)  # שעה אחת המתנה בין טורנירים
+            logger.info("Waiting 1 minute before starting next tournament to avoid blocking.")
+            await asyncio.sleep(60)  # השהייה של דקה אחת בין טורנירים
         await bot.forecast_on_tournament(tid, return_exceptions=True)
 
 if __name__ == "__main__":
