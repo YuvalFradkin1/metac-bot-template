@@ -84,35 +84,12 @@ class V11Forecaster(ForecastBot):
 
         return ReasonedPrediction(prediction_value=prediction, reasoning=reasoning)
 
-    async def _run_forecast_on_multiple_choice(
-        self, question: MultipleChoiceQuestion, research: str
-    ) -> ReasonedPrediction[PredictedOptionList]:
-        equal_prob = round(1.0 / len(question.options), 2)
-        predicted_options = {opt: equal_prob for opt in question.options}
-        reasoning = "Multiple-choice not yet fully supported by V11."
-        return ReasonedPrediction(prediction_value=predicted_options, reasoning=reasoning)
-
-    async def _run_forecast_on_numeric(
-        self, question: NumericQuestion, research: str
-    ) -> ReasonedPrediction[NumericDistribution]:
-        percentiles = {
-            10: question.lower_bound if question.lower_bound else 0,
-            20: question.lower_bound if question.lower_bound else 10,
-            40: (question.lower_bound + question.upper_bound) / 3 if question.upper_bound else 50,
-            60: (question.lower_bound + question.upper_bound) / 2 if question.upper_bound else 100,
-            80: question.upper_bound if question.upper_bound else 150,
-            90: question.upper_bound if question.upper_bound else 200,
-        }
-        numeric_dist = NumericDistribution(declared_percentiles=percentiles)
-        reasoning = "Numeric questions not yet fully supported by V11."
-        return ReasonedPrediction(prediction_value=numeric_dist, reasoning=reasoning)
-
     async def update_past_accuracy(self):
         if not os.path.exists(LAST_UPDATE_FILE):
             with open(LAST_UPDATE_FILE, "w") as f:
                 f.write(str(time.time()))
             logger.info("Initial run detected, skipping accuracy update this time.")
-            return  # Skip update on the first run
+            return
 
         with open(LAST_UPDATE_FILE, "r") as f:
             last_update = float(f.read())
@@ -140,6 +117,10 @@ class V11Forecaster(ForecastBot):
         with open(LAST_UPDATE_FILE, "w") as f:
             f.write(str(current_time))
         logger.info("Past predictions accuracy updated successfully.")
+
+async def run_multiple_tournaments(bot, tournament_ids):
+    for tid in tournament_ids:
+        await bot.forecast_on_tournament(tid, return_exceptions=True)
 
 if __name__ == "__main__":
     logging.basicConfig(
@@ -171,18 +152,22 @@ if __name__ == "__main__":
     asyncio.run(v11_bot.update_past_accuracy())
 
     if run_mode == "tournament":
-        forecast_reports = asyncio.run(
-            v11_bot.forecast_on_tournament(
-                MetaculusApi.CURRENT_AI_COMPETITION_ID, return_exceptions=True
-            )
-        )
-    elif run_mode == "quarterly_cup":
-        v11_bot.skip_previously_forecasted_questions = False
-        forecast_reports = asyncio.run(
-            v11_bot.forecast_on_tournament(
-                MetaculusApi.CURRENT_QUARTERLY_CUP_ID, return_exceptions=True
-            )
-        )
+        TOURNAMENT_IDS = [
+            32721,  # Q2 AI Forecasting Benchmark (הנוכחית שלך)
+            32726,  # Metaculus Cup
+            32775,
+            32725,
+            32722,
+            32564,
+            32637,
+            3625,
+            3411,
+            1756,
+            1998,
+            1886
+        ]
+        asyncio.run(run_multiple_tournaments(v11_bot, TOURNAMENT_IDS))
+
     elif run_mode == "test_questions":
         EXAMPLE_QUESTIONS = [
             "https://www.metaculus.com/questions/578/human-extinction-by-2100/",
@@ -190,12 +175,6 @@ if __name__ == "__main__":
             "https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",
         ]
         v11_bot.skip_previously_forecasted_questions = False
-        questions = [
-            MetaculusApi.get_question_by_url(question_url)
-            for question_url in EXAMPLE_QUESTIONS
-        ]
-        forecast_reports = asyncio.run(
-            v11_bot.forecast_questions(questions, return_exceptions=True)
-        )
-
-    V11Forecaster.log_report_summary(forecast_reports)
+        questions = [MetaculusApi.get_question_by_url(url) for url in EXAMPLE_QUESTIONS]
+        forecast_reports = asyncio.run(v11_bot.forecast_questions(questions, return_exceptions=True))
+        V11Forecaster.log_report_summary(forecast_reports)
