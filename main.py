@@ -84,6 +84,47 @@ class V11Forecaster(ForecastBot):
 
         return ReasonedPrediction(prediction_value=prediction, reasoning=reasoning)
 
+    async def _run_forecast_on_multiple_choice(
+        self, question: MultipleChoiceQuestion, research: str
+    ) -> ReasonedPrediction[PredictedOptionList]:
+        embedding = await self.text_to_embedding(question.question_text)
+        v11_result = await self.v11_predict(embedding)
+
+        prob_per_option = round(1.0 / len(question.options), 2)
+        predicted_options = {option: prob_per_option for option in question.options}
+        reasoning = (
+            f"V11 is currently assigning equal probabilities ({prob_per_option}) to each option."
+        )
+
+        logger.info(f"Forecasted multiple choice {question.page_url} with equal probabilities.")
+        return ReasonedPrediction(prediction_value=predicted_options, reasoning=reasoning)
+
+    async def _run_forecast_on_numeric(
+        self, question: NumericQuestion, research: str
+    ) -> ReasonedPrediction[NumericDistribution]:
+        embedding = await self.text_to_embedding(question.question_text)
+        v11_result = await self.v11_predict(embedding)
+
+        lower = question.lower_bound or 0
+        upper = question.upper_bound or lower + 100
+        midpoint = (lower + upper) / 2
+
+        percentiles = {
+            10: lower,
+            20: lower + (midpoint - lower) * 0.5,
+            40: midpoint,
+            60: midpoint,
+            80: midpoint + (upper - midpoint) * 0.5,
+            90: upper,
+        }
+        numeric_dist = NumericDistribution(declared_percentiles=percentiles)
+        reasoning = (
+            "V11 forecasted numeric distribution based on embedding and default numeric bounds."
+        )
+
+        logger.info(f"Forecasted numeric {question.page_url} with default numeric distribution.")
+        return ReasonedPrediction(prediction_value=numeric_dist, reasoning=reasoning)
+
     async def update_past_accuracy(self):
         if not os.path.exists(LAST_UPDATE_FILE):
             with open(LAST_UPDATE_FILE, "w") as f:
@@ -129,15 +170,8 @@ if __name__ == "__main__":
     )
 
     parser = argparse.ArgumentParser(description="Run V11ForecastBot forecasting system")
-    parser.add_argument(
-        "--mode",
-        type=str,
-        choices=["tournament", "quarterly_cup", "test_questions"],
-        default="tournament",
-        help="Specify the run mode (default: tournament)",
-    )
+    parser.add_argument("--mode", type=str, choices=["tournament"], default="tournament")
     args = parser.parse_args()
-    run_mode: Literal["tournament", "quarterly_cup", "test_questions"] = args.mode
 
     v11_bot = V11Forecaster(
         research_reports_per_question=1,
@@ -148,33 +182,8 @@ if __name__ == "__main__":
         skip_previously_forecasted_questions=True,
     )
 
-    logger.info("Checking if automatic accuracy update is needed...")
     asyncio.run(v11_bot.update_past_accuracy())
 
-    if run_mode == "tournament":
-        TOURNAMENT_IDS = [
-            32721,  # Q2 AI Forecasting Benchmark (הנוכחית שלך)
-            32726,  # Metaculus Cup
-            32775,
-            32725,
-            32722,
-            32564,
-            32637,
-            3625,
-            3411,
-            1756,
-            1998,
-            1886
-        ]
-        asyncio.run(run_multiple_tournaments(v11_bot, TOURNAMENT_IDS))
+    TOURNAMENT_IDS = [32721, 32726, 32775, 32725, 32722, 32564, 32637, 3625, 3411, 1756, 1998, 1886]
 
-    elif run_mode == "test_questions":
-        EXAMPLE_QUESTIONS = [
-            "https://www.metaculus.com/questions/578/human-extinction-by-2100/",
-            "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",
-            "https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",
-        ]
-        v11_bot.skip_previously_forecasted_questions = False
-        questions = [MetaculusApi.get_question_by_url(url) for url in EXAMPLE_QUESTIONS]
-        forecast_reports = asyncio.run(v11_bot.forecast_questions(questions, return_exceptions=True))
-        V11Forecaster.log_report_summary(forecast_reports)
+    asyncio.run(run_multiple_tournaments(v11_bot, TOURNAMENT_IDS))
